@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.responses import HTMLResponse  # 1. تم إضافة هذا السطر
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from transformers import pipeline
@@ -8,7 +9,7 @@ import re
 # إنشاء تطبيق الـ FastAPI
 app = FastAPI()
 
-# إضافة نظام الـ CORS للسماح للفرونت إند بالتواصل مع السيرفر دون قيود أمنية متصفحية
+# إضافة نظام الـ CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -16,52 +17,56 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# تعريف الموديلات (Pipelines) وتحميلها في الذاكرة مرة واحدة عند بدء التشغيل
-# موديل تحليل المشاعر
+# تعريف الموديلات (Pipelines)
+print("Loading models... please wait.") # رسالة عشان تعرف في اللوجز إنه بيحمل
 sentiment_model = pipeline("sentiment-analysis")
-# موديل تصنيف المواضيع (Zero-shot) لتحديد نوع الخبر أو المقال
 topic_model = pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
 
-# تعريف شكل البيانات المستلمة من المستخدم
+# تعريف شكل البيانات
 class UserRequest(BaseModel):
     text: str
 
-@app.get("/")
+# 2. تعديل الـ Home ليعرض ملف HTML بدلاً من رسالة JSON
+@app.get("/", response_class=HTMLResponse)
 def home():
-    # رسالة بسيطة للتأكد من أن السيرفر يعمل
-    return {"status": "Server is up and running successfully."}
+    # هنا السيرفر بيقرأ ملف index.html اللي أنت رفعته وبيرجعه للمتصفح
+    try:
+        with open("index.html", "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return "<h1>Error: index.html not found. Please upload the file.</h1>"
 
 @app.post("/analyze")
 def analyze_content(request: UserRequest):
-    # تنظيف النص من أي فراغات زائدة في البداية أو النهاية
+    # تنظيف النص
     input_text = request.text.strip()
 
-    # التحقق من أن النص يحتوي على أحرف حقيقية وليس رموزاً أو فراغات فقط
+    # التحقق من المدخلات
     if not input_text or not re.search('[a-zA-Zا-ي]', input_text):
         return {"error": "Invalid input. Please provide a clear and meaningful text for analysis."}
 
-    # البدء في تحليل المشاعر
+    # تحليل المشاعر
     sentiment_data = sentiment_model(input_text)[0]
     sentiment_label = sentiment_data['label']
     
-    # تحويل المشاعر إلى رسالة نصية احترافية بناءً على اللوجيك الخاص بك
+    # صياغة الرد
     if sentiment_label == "NEGATIVE":
         sentiment_feedback = "We detected a negative tone. Remember that challenges are just opportunities for growth."
     else:
         sentiment_feedback = "We detected a positive tone. Your optimism is truly inspiring and adds great value."
 
-    # كشف لغة النص باستخدام مكتبة langdetect
+    # كشف اللغة
     try:
         language_code = detect(input_text)
     except:
         language_code = "Unknown"
 
-    # تصنيف موضوع النص بين قائمة من التصنيفات المقترحة
+    # تصنيف الموضوع
     possible_categories = ["Politics", "Sports", "Technology", "Economy", "Health"]
     classification_output = topic_model(input_text, candidate_labels=possible_categories)
     dominant_topic = classification_output['labels'][0]
 
-    # تجميع النتائج في رد نصي احترافي ومنسق
+    # تجميع النتائج
     formatted_response = (
         f"Content Analysis: This text is classified under [{dominant_topic}]. "
         f"Detected Language: [{language_code}]. "
@@ -77,3 +82,4 @@ def analyze_content(request: UserRequest):
             "sentiment": sentiment_label
         }
     }
+    
